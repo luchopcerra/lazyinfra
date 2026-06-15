@@ -33,4 +33,5 @@ jobs:
           version: "~> v2"
           args: release --clean
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Use a custom PAT to allow pushing to the Homebrew tap repository
+          GITHUB_TOKEN: ${{ secrets.GORELEASER_TOKEN }}

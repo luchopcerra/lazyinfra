@@ -42,6 +42,16 @@ archives:
 checksum:
   name_template: checksums.txt
 
+brews:
+  - repository:
+      owner: luchopcerra
+      name: homebrew-tap
+    directory: Formula
+    homepage: https://github.com/luchopcerra/lazyinfra
+    description: "A fast, keyboard-driven AWS Serverless TUI"
+    install: |
+      bin.install "lazyinfra"
+
 snapshot:
   version_template: "{{ incpatch .Version }}-next"
 
