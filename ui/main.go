@@ -12,6 +12,8 @@ import (
 
 	infraaws "lazyinfra/aws"
 	"lazyinfra/ui/views"
+
+	"github.com/aws/aws-sdk-go-v2/service/lambda/types"
 )
 
 type service int
@@ -35,7 +37,7 @@ var services = []struct {
 }
 
 type Model struct {
-	client *infraaws.Client
+	client *infraaws.AWSClient
 
 	sidebar list.Model
 	active  service
@@ -59,7 +61,7 @@ func (m menuItem) Title() string       { return m.title }
 func (m menuItem) Description() string { return m.desc }
 func (m menuItem) FilterValue() string { return m.title }
 
-func NewModel(client *infraaws.Client) Model {
+func NewModel(client *infraaws.AWSClient) Model {
 	items := make([]list.Item, 0, len(services))
 	for _, svc := range services {
 		items = append(items, menuItem{title: svc.title, desc: svc.desc, id: svc.id})
@@ -85,7 +87,6 @@ func NewModel(client *infraaws.Client) Model {
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		m.loadAPIs(),
-		m.loadLambdaFunctions(),
 		m.loadLogGroups(),
 		m.loadDistributions(),
 	)
@@ -114,6 +115,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "2":
 			m.sidebar.Select(1)
 			m.active = serviceLambda
+			cmds = append(cmds, m.loadLambdaFunctions())
 		case "3":
 			m.sidebar.Select(2)
 			m.active = serviceCloudWatch
@@ -123,6 +125,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			if item, ok := m.sidebar.SelectedItem().(menuItem); ok {
 				m.active = item.id
+				if m.active == serviceLambda {
+					cmds = append(cmds, m.loadLambdaFunctions())
+				}
 			}
 		case "r":
 			cmds = append(cmds, m.refreshActive())
@@ -135,7 +140,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.lastErr = fmt.Errorf("%s: %w", msg.Service, msg.Err)
 	case lambdaListLoadedMsg:
 		m.lastErr = nil
-		m.lambda.SetFunctions([]infraaws.LambdaFunction(msg))
+		m.lambda.SetFunctions([]types.FunctionConfiguration(msg))
 	case apiListLoadedMsg:
 		m.lastErr = nil
 		m.api.SetAPIs([]infraaws.API(msg))
@@ -246,7 +251,7 @@ func (m Model) loadLambdaFunctions() tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		functions, err := m.client.ListLambdaFunctions(ctx)
+		functions, err := m.client.FetchLambdas(ctx)
 		if err != nil {
 			return errMsg{Service: "lambda", Err: err}
 		}

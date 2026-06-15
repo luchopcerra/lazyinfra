@@ -14,7 +14,10 @@ import (
 func main() {
 	ctx := context.Background()
 
-	client, err := infraaws.NewClient(ctx, infraaws.ConfigFromEnv())
+	profile := os.Getenv("AWS_PROFILE")
+	isLocalStack := os.Getenv("LAZYINFRA_LOCALSTACK") == "1"
+
+	client, err := infraaws.NewClient(ctx, profile, isLocalStack)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to initialize AWS client: %v\n", err)
 		os.Exit(1)
