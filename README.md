@@ -36,9 +36,15 @@
 
 ## Getting Started
 
+### Homebrew (macOS/Linux)
+
+```bash
+brew install luchopcerra/tap/lazyinfra
+```
+
 ### Prerequisites
 
-- Go installed locally.
+- Go installed locally (if building from source).
 - An AWS profile configured through the standard AWS config files, or a LocalStack environment for local development.
 
 > [!IMPORTANT]
