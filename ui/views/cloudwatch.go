@@ -18,6 +18,7 @@ type CloudWatchModel struct {
 	width    int
 	height   int
 	selected int
+	tailing  bool
 }
 
 func NewCloudWatchModel() CloudWatchModel {
@@ -42,6 +43,17 @@ func (m *CloudWatchModel) AppendLines(lines []string) {
 	m.lines = append(m.lines, lines...)
 	m.tail.SetContent(m.renderLogLines())
 	m.tail.GotoBottom()
+}
+
+func (m *CloudWatchModel) SetTailing(tailing bool) {
+	m.tailing = tailing
+}
+
+func (m CloudWatchModel) SelectedLogGroup() string {
+	if len(m.groups) == 0 || m.selected < 0 || m.selected >= len(m.groups) {
+		return ""
+	}
+	return m.groups[m.selected].Name
 }
 
 func (m *CloudWatchModel) Update(msg tea.Msg) tea.Cmd {
@@ -82,10 +94,14 @@ func (m CloudWatchModel) View() string {
 	}
 
 	b.WriteString("\n")
-	b.WriteString(sectionTitle.Render("Tail"))
+	status := "stopped"
+	if m.tailing {
+		status = "streaming"
+	}
+	b.WriteString(sectionTitle.Render("Tail " + badge.Render(status)))
 	b.WriteString("\n")
 	if len(m.lines) == 0 {
-		m.tail.SetContent(muted.Render("No active stream. Press t to append sample log events."))
+		m.tail.SetContent(muted.Render("No active stream. Select a log group and press t to start tailing."))
 	}
 	b.WriteString(panel.Width(m.width - 2).Render(m.tail.View()))
 

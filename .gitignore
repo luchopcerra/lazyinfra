@@ -1,0 +1,11 @@
+# Build artifacts
+lazyinfra
+lazyinfra.exe
+dist/
+
+# Local environment
+.env
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db

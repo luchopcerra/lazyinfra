@@ -11,7 +11,18 @@ import (
 	"lazyinfra/ui"
 )
 
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "--version" {
+		fmt.Printf("lazyinfra %s (%s, %s)\n", version, commit, date)
+		return
+	}
+
 	ctx := context.Background()
 
 	profile := os.Getenv("AWS_PROFILE")

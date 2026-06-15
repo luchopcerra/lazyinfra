@@ -17,6 +17,8 @@ type CloudFrontModel struct {
 	width         int
 	height        int
 	selected      int
+	status        string
+	editingPath   bool
 }
 
 func NewCloudFrontModel() CloudFrontModel {
@@ -42,9 +44,41 @@ func (m *CloudFrontModel) SetDistributions(distributions []infraaws.Distribution
 	}
 }
 
+func (m *CloudFrontModel) SetStatus(status string) {
+	m.status = status
+}
+
+func (m CloudFrontModel) SelectedDistributionID() string {
+	if len(m.distributions) == 0 || m.selected < 0 || m.selected >= len(m.distributions) {
+		return ""
+	}
+	return m.distributions[m.selected].ID
+}
+
+func (m CloudFrontModel) InvalidationPath() string {
+	return m.pathInput.Value()
+}
+
+func (m CloudFrontModel) IsEditingPath() bool {
+	return m.editingPath
+}
+
 func (m *CloudFrontModel) Update(msg tea.Msg) tea.Cmd {
 	key, ok := msg.(tea.KeyMsg)
-	if ok && len(m.distributions) > 0 {
+	if ok {
+		switch key.String() {
+		case "e":
+			m.editingPath = true
+			m.pathInput.Focus()
+			return nil
+		case "esc":
+			m.editingPath = false
+			m.pathInput.Blur()
+			return nil
+		}
+	}
+
+	if ok && len(m.distributions) > 0 && !m.editingPath {
 		switch key.String() {
 		case "up", "k":
 			m.selected = max(0, m.selected-1)
@@ -82,7 +116,11 @@ func (m CloudFrontModel) View() string {
 	}
 
 	b.WriteString("\n")
-	b.WriteString(panel.Render("Invalidation placeholder\n\nPath: " + m.pathInput.View() + "\n\nFuture action: submit an invalidation for the selected distribution."))
+	status := m.status
+	if status == "" {
+		status = "Press e to edit the path, then i to create the invalidation."
+	}
+	b.WriteString(panel.Render("Invalidation\n\nPath: " + m.pathInput.View() + "\n\n" + status))
 
 	return lipgloss.NewStyle().Width(m.width).Render(b.String())
 }

@@ -49,6 +49,10 @@ type Model struct {
 	cloudwatch views.CloudWatchModel
 	cloudfront views.CloudFrontModel
 	lastErr    error
+
+	tailGroup  string
+	tailEvents <-chan infraaws.TailEvent
+	tailCancel context.CancelFunc
 }
 
 type menuItem struct {
@@ -108,6 +112,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "q":
+			if m.tailCancel != nil {
+				m.tailCancel()
+			}
 			return m, tea.Quit
 		case "1":
 			m.sidebar.Select(0)
@@ -133,11 +140,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.refreshActive())
 		case "t":
 			if m.active == serviceCloudWatch {
-				cmds = append(cmds, m.tailLogs())
+				cmds = append(cmds, m.startLogTail())
+			}
+		case "i":
+			if m.active == serviceCloudFront && !m.cloudfront.IsEditingPath() {
+				m.cloudfront.SetStatus("Creating invalidation...")
+				cmds = append(cmds, m.createInvalidation())
 			}
 		}
 	case errMsg:
 		m.lastErr = fmt.Errorf("%s: %w", msg.Service, msg.Err)
+		if msg.Service == "cloudwatch tail" {
+			m.cloudwatch.SetTailing(false)
+		}
 	case lambdaListLoadedMsg:
 		m.lastErr = nil
 		m.lambda.SetFunctions([]types.FunctionConfiguration(msg))
@@ -150,9 +165,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case logLinesAppendedMsg:
 		m.lastErr = nil
 		m.cloudwatch.AppendLines([]string(msg))
+		cmds = append(cmds, m.waitForLogEvent())
+	case logTailStartedMsg:
+		if m.tailCancel != nil {
+			m.tailCancel()
+		}
+		m.lastErr = nil
+		m.tailGroup = msg.Group
+		m.tailEvents = msg.Events
+		m.tailCancel = msg.Cancel
+		m.cloudwatch.SetTailing(true)
+		m.cloudwatch.AppendLines([]string{fmt.Sprintf("tailing %s", msg.Group)})
+		cmds = append(cmds, m.waitForLogEvent())
 	case distributionsLoadedMsg:
 		m.lastErr = nil
 		m.cloudfront.SetDistributions([]infraaws.Distribution(msg))
+	case invalidationCreatedMsg:
+		m.lastErr = nil
+		result := infraaws.InvalidationResult(msg)
+		m.cloudfront.SetStatus(fmt.Sprintf("Invalidation %s created for %s (%s)", result.ID, result.Path, result.Status))
 	}
 
 	var cmd tea.Cmd
@@ -201,7 +232,10 @@ func (m Model) activeView() string {
 
 	footerParts := []string{"1-4 switch", "enter select", "r refresh", "q quit"}
 	if m.active == serviceCloudWatch {
-		footerParts = append(footerParts, "t append sample logs")
+		footerParts = append(footerParts, "t tail selected group")
+	}
+	if m.active == serviceCloudFront {
+		footerParts = append(footerParts, "e edit path", "esc done editing", "i create invalidation")
 	}
 	if m.lastErr != nil {
 		footerParts = append(footerParts, styles.error.Render(m.lastErr.Error()))
@@ -285,16 +319,37 @@ func (m Model) loadLogGroups() tea.Cmd {
 	}
 }
 
-func (m Model) tailLogs() tea.Cmd {
+func (m Model) startLogTail() tea.Cmd {
+	logGroup := m.cloudwatch.SelectedLogGroup()
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		lines, err := m.client.TailLogSample(ctx)
-		if err != nil {
-			return errMsg{Service: "cloudwatch tail", Err: err}
+		if logGroup == "" {
+			return errMsg{Service: "cloudwatch tail", Err: fmt.Errorf("select a log group before tailing")}
 		}
-		return logLinesAppendedMsg(lines)
+		ctx, cancel := context.WithCancel(context.Background())
+		events := make(chan infraaws.TailEvent, 256)
+		go m.client.TailLogGroup(ctx, logGroup, events)
+		return logTailStartedMsg{Group: logGroup, Events: events, Cancel: cancel}
+	}
+}
+
+func (m Model) waitForLogEvent() tea.Cmd {
+	events := m.tailEvents
+	if events == nil {
+		return nil
+	}
+
+	return func() tea.Msg {
+		event, ok := <-events
+		if !ok {
+			return errMsg{Service: "cloudwatch tail", Err: fmt.Errorf("tail stream stopped")}
+		}
+		if event.Err != nil {
+			return errMsg{Service: "cloudwatch tail", Err: event.Err}
+		}
+		if event.Line == "" {
+			return nil
+		}
+		return logLinesAppendedMsg([]string{event.Line})
 	}
 }
 
@@ -308,6 +363,22 @@ func (m Model) loadDistributions() tea.Cmd {
 			return errMsg{Service: "cloudfront", Err: err}
 		}
 		return distributionsLoadedMsg(distributions)
+	}
+}
+
+func (m Model) createInvalidation() tea.Cmd {
+	distributionID := m.cloudfront.SelectedDistributionID()
+	invalidationPath := m.cloudfront.InvalidationPath()
+
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		result, err := m.client.CreateInvalidation(ctx, distributionID, invalidationPath)
+		if err != nil {
+			return errMsg{Service: "cloudfront invalidation", Err: err}
+		}
+		return invalidationCreatedMsg(result)
 	}
 }
 
