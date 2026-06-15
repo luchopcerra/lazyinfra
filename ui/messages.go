@@ -1,13 +1,17 @@
 package ui
 
-import infraaws "lazyinfra/aws"
+import (
+	infraaws "lazyinfra/aws"
+
+	"github.com/aws/aws-sdk-go-v2/service/lambda/types"
+)
 
 type errMsg struct {
 	Service string
 	Err     error
 }
 
-type lambdaListLoadedMsg []infraaws.LambdaFunction
+type lambdaListLoadedMsg []types.FunctionConfiguration
 type apiListLoadedMsg []infraaws.API
 type logGroupsLoadedMsg []infraaws.LogGroup
 type logLinesAppendedMsg []string

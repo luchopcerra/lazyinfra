@@ -2,7 +2,6 @@ package aws
 
 import (
 	"context"
-	"os"
 	"time"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
@@ -11,30 +10,18 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cloudfront"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
+	"github.com/aws/aws-sdk-go-v2/service/lambda/types"
 )
 
 const defaultRegion = "us-east-1"
 
-type Config struct {
-	Profile            string
-	Region             string
-	LocalStackEndpoint string
-}
-
-type Client struct {
+type AWSClient struct {
 	cfg awssdk.Config
 
 	Lambda         *lambda.Client
 	APIGatewayV2   *apigatewayv2.Client
 	CloudWatchLogs *cloudwatchlogs.Client
 	CloudFront     *cloudfront.Client
-}
-
-type LambdaFunction struct {
-	Name         string
-	Runtime      string
-	LastModified string
-	MemoryMB     int32
 }
 
 type API struct {
@@ -62,36 +49,16 @@ type Distribution struct {
 	DomainName string
 }
 
-func ConfigFromEnv() Config {
-	region := os.Getenv("AWS_REGION")
-	if region == "" {
-		region = os.Getenv("AWS_DEFAULT_REGION")
-	}
-	if region == "" {
-		region = defaultRegion
-	}
-
-	endpoint := os.Getenv("LOCALSTACK_ENDPOINT")
-	if endpoint == "" && os.Getenv("LAZYINFRA_LOCALSTACK") == "1" {
-		endpoint = "http://localhost:4566"
-	}
-
-	return Config{
-		Profile:            os.Getenv("AWS_PROFILE"),
-		Region:             region,
-		LocalStackEndpoint: endpoint,
-	}
-}
-
-func NewClient(ctx context.Context, cfg Config) (*Client, error) {
+func NewClient(ctx context.Context, profile string, isLocalStack bool) (*AWSClient, error) {
+	region := defaultRegion
 	options := []func(*config.LoadOptions) error{
-		config.WithRegion(cfg.Region),
+		config.WithRegion(region),
 	}
-	if cfg.Profile != "" {
-		options = append(options, config.WithSharedConfigProfile(cfg.Profile))
+	if profile != "" {
+		options = append(options, config.WithSharedConfigProfile(profile))
 	}
-	if cfg.LocalStackEndpoint != "" {
-		options = append(options, config.WithBaseEndpoint(cfg.LocalStackEndpoint))
+	if isLocalStack {
+		options = append(options, config.WithBaseEndpoint("http://localhost:4566"))
 	}
 
 	awsCfg, err := config.LoadDefaultConfig(ctx, options...)
@@ -99,7 +66,7 @@ func NewClient(ctx context.Context, cfg Config) (*Client, error) {
 		return nil, err
 	}
 
-	return &Client{
+	return &AWSClient{
 		cfg:            awsCfg,
 		Lambda:         lambda.NewFromConfig(awsCfg),
 		APIGatewayV2:   apigatewayv2.NewFromConfig(awsCfg),
@@ -108,21 +75,22 @@ func NewClient(ctx context.Context, cfg Config) (*Client, error) {
 	}, nil
 }
 
-func (c *Client) ListLambdaFunctions(ctx context.Context) ([]LambdaFunction, error) {
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-time.After(180 * time.Millisecond):
+func (c *AWSClient) FetchLambdas(ctx context.Context) ([]types.FunctionConfiguration, error) {
+	var functions []types.FunctionConfiguration
+	paginator := lambda.NewListFunctionsPaginator(c.Lambda, &lambda.ListFunctionsInput{})
+
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, err
+		}
+		functions = append(functions, page.Functions...)
 	}
 
-	return []LambdaFunction{
-		{Name: "users-create", Runtime: "nodejs20.x", LastModified: "2026-06-12T10:41:00Z", MemoryMB: 256},
-		{Name: "orders-process", Runtime: "go1.x", LastModified: "2026-06-13T19:15:32Z", MemoryMB: 512},
-		{Name: "billing-webhook", Runtime: "python3.12", LastModified: "2026-06-14T08:05:11Z", MemoryMB: 128},
-	}, nil
+	return functions, nil
 }
 
-func (c *Client) ListAPIs(ctx context.Context) ([]API, error) {
+func (c *AWSClient) ListAPIs(ctx context.Context) ([]API, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -150,7 +118,7 @@ func (c *Client) ListAPIs(ctx context.Context) ([]API, error) {
 	}, nil
 }
 
-func (c *Client) ListLogGroups(ctx context.Context) ([]LogGroup, error) {
+func (c *AWSClient) ListLogGroups(ctx context.Context) ([]LogGroup, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -164,7 +132,7 @@ func (c *Client) ListLogGroups(ctx context.Context) ([]LogGroup, error) {
 	}, nil
 }
 
-func (c *Client) TailLogSample(ctx context.Context) ([]string, error) {
+func (c *AWSClient) TailLogSample(ctx context.Context) ([]string, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -179,7 +147,7 @@ func (c *Client) TailLogSample(ctx context.Context) ([]string, error) {
 	}, nil
 }
 
-func (c *Client) ListDistributions(ctx context.Context) ([]Distribution, error) {
+func (c *AWSClient) ListDistributions(ctx context.Context) ([]Distribution, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()

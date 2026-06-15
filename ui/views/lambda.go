@@ -4,14 +4,13 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-
-	infraaws "lazyinfra/aws"
 )
 
 type LambdaModel struct {
-	functions []infraaws.LambdaFunction
+	functions []types.FunctionConfiguration
 	selected  int
 	width     int
 	height    int
@@ -26,7 +25,7 @@ func (m *LambdaModel) SetSize(width, height int) {
 	m.height = height
 }
 
-func (m *LambdaModel) SetFunctions(functions []infraaws.LambdaFunction) {
+func (m *LambdaModel) SetFunctions(functions []types.FunctionConfiguration) {
 	m.functions = functions
 	if m.selected >= len(functions) {
 		m.selected = max(0, len(functions)-1)
@@ -54,10 +53,20 @@ func (m LambdaModel) View() string {
 	}
 
 	var b strings.Builder
-	b.WriteString(tableHeader.Render("Function                       Runtime       Memory  Last Modified"))
+	b.WriteString(tableHeader.Render("Function                       Runtime             Last Modified"))
 	b.WriteString("\n")
 	for i, fn := range m.functions {
-		row := fmt.Sprintf("%-30s %-12s %4dMB  %s", fn.Name, fn.Runtime, fn.MemoryMB, fn.LastModified)
+		name := ""
+		if fn.FunctionName != nil {
+			name = *fn.FunctionName
+		}
+		runtime := string(fn.Runtime)
+		lastMod := ""
+		if fn.LastModified != nil {
+			lastMod = *fn.LastModified
+		}
+
+		row := fmt.Sprintf("%-30s %-19s %s", name, runtime, lastMod)
 		if i == m.selected {
 			row = selected.Render(row)
 		}
