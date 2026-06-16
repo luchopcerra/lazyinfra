@@ -76,13 +76,13 @@ func NewCredentialsModel() CredentialsModel {
 	}
 }
 
-func (m CredentialsModel) GetStartURL() string       { return m.startURL }
-func (m CredentialsModel) GetRegion() string          { return m.region }
-func (m CredentialsModel) State() SSOState             { return m.state }
-func (m CredentialsModel) GetClientID() string         { return m.clientID }
-func (m CredentialsModel) GetClientSecret() string      { return m.clientSecret }
-func (m CredentialsModel) GetDeviceCode() string        { return m.deviceCode }
-func (m CredentialsModel) IsConfiguring() bool          { return m.state == SSOConfiguring }
+func (m CredentialsModel) GetStartURL() string     { return m.startURL }
+func (m CredentialsModel) GetRegion() string       { return m.region }
+func (m CredentialsModel) State() SSOState         { return m.state }
+func (m CredentialsModel) GetClientID() string     { return m.clientID }
+func (m CredentialsModel) GetClientSecret() string { return m.clientSecret }
+func (m CredentialsModel) GetDeviceCode() string   { return m.deviceCode }
+func (m CredentialsModel) IsConfiguring() bool     { return m.state == SSOConfiguring }
 
 func (m *CredentialsModel) SetSize(width, height int) {
 	m.width = width
