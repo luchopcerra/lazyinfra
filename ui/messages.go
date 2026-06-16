@@ -25,3 +25,32 @@ type logTailStartedMsg struct {
 	Events <-chan infraaws.TailEvent
 	Cancel context.CancelFunc
 }
+
+type ssoDeviceAuthMsg struct {
+	UserCode        string
+	VerificationURI string
+	ClientID        string
+	ClientSecret    string
+	DeviceCode      string
+	Err             error
+}
+
+type ssoTokenMsg struct {
+	AccessToken *string
+	Err         error
+}
+
+type ssoAccountsLoadedMsg struct {
+	Accounts []infraaws.SSOAccount
+	Err      error
+}
+
+type ssoRolesLoadedMsg struct {
+	Roles []infraaws.SSORole
+	Err   error
+}
+
+type ssoCredentialsMsg struct {
+	Credentials *infraaws.AWSCredentials
+	Err         error
+}

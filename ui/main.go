@@ -23,6 +23,7 @@ const (
 	serviceLambda
 	serviceCloudWatch
 	serviceCloudFront
+	serviceCredentials
 )
 
 var services = []struct {
@@ -34,6 +35,7 @@ var services = []struct {
 	{serviceLambda, "AWS Lambda", "functions and invoke"},
 	{serviceCloudWatch, "CloudWatch", "logs and tailing"},
 	{serviceCloudFront, "CloudFront", "distributions and invalidations"},
+	{serviceCredentials, "SSO Credentials", "login and update default profile"},
 }
 
 type Model struct {
@@ -44,15 +46,19 @@ type Model struct {
 	width   int
 	height  int
 
-	api        views.APIModel
-	lambda     views.LambdaModel
-	cloudwatch views.CloudWatchModel
-	cloudfront views.CloudFrontModel
-	lastErr    error
+	api         views.APIModel
+	lambda      views.LambdaModel
+	cloudwatch  views.CloudWatchModel
+	cloudfront  views.CloudFrontModel
+	credentials views.CredentialsModel
+	lastErr     error
 
 	tailGroup  string
 	tailEvents <-chan infraaws.TailEvent
 	tailCancel context.CancelFunc
+
+	ssoCfg      infraaws.SSOConfig
+	accessToken *string
 }
 
 type menuItem struct {
@@ -77,14 +83,21 @@ func NewModel(client *infraaws.AWSClient) Model {
 	sidebar.SetFilteringEnabled(false)
 	sidebar.SetShowHelp(false)
 
+	credsModel := views.NewCredentialsModel()
+
 	return Model{
-		client:     client,
-		sidebar:    sidebar,
-		active:     serviceAPIGateway,
-		api:        views.NewAPIModel(),
-		lambda:     views.NewLambdaModel(),
-		cloudwatch: views.NewCloudWatchModel(),
-		cloudfront: views.NewCloudFrontModel(),
+		client:      client,
+		sidebar:     sidebar,
+		active:      serviceAPIGateway,
+		api:         views.NewAPIModel(),
+		lambda:      views.NewLambdaModel(),
+		cloudwatch:  views.NewCloudWatchModel(),
+		cloudfront:  views.NewCloudFrontModel(),
+		credentials: credsModel,
+		ssoCfg: infraaws.SSOConfig{
+			StartURL: credsModel.GetStartURL(),
+			Region:   credsModel.GetRegion(),
+		},
 	}
 }
 
@@ -109,6 +122,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.lambda.SetSize(contentWidth, msg.Height-2)
 		m.cloudwatch.SetSize(contentWidth, msg.Height-2)
 		m.cloudfront.SetSize(contentWidth, msg.Height-2)
+		m.credentials.SetSize(contentWidth, msg.Height-2)
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "q":
@@ -129,6 +143,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "4":
 			m.sidebar.Select(3)
 			m.active = serviceCloudFront
+		case "5":
+			m.sidebar.Select(4)
+			m.active = serviceCredentials
 		case "enter":
 			if item, ok := m.sidebar.SelectedItem().(menuItem); ok {
 				m.active = item.id
@@ -146,6 +163,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.active == serviceCloudFront && !m.cloudfront.IsEditingPath() {
 				m.cloudfront.SetStatus("Creating invalidation...")
 				cmds = append(cmds, m.createInvalidation())
+			}
+		case "l":
+			if m.active == serviceCredentials && m.credentials.State() == views.SSOError {
+				m.credentials.Reset()
+			}
+			if m.active == serviceCredentials && (m.credentials.State() == views.SSOIdle || m.credentials.State() == views.SSOSuccess) {
+				if m.ssoCfg.StartURL == "" {
+					m.credentials.SetError("set SSO_START_URL environment variable (e.g. https://my-company.awsapps.com/start)")
+				} else {
+					m.credentials.SetError("")
+					cmds = append(cmds, m.startSSODeviceAuth())
+				}
+			}
+		case "p":
+			if m.active == serviceCredentials && m.credentials.State() == views.SSODeviceAuth {
+				m.credentials.SetPolling()
+				cmds = append(cmds, m.pollSSOToken())
 			}
 		}
 	case errMsg:
@@ -184,6 +218,47 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.lastErr = nil
 		result := infraaws.InvalidationResult(msg)
 		m.cloudfront.SetStatus(fmt.Sprintf("Invalidation %s created for %s (%s)", result.ID, result.Path, result.Status))
+	case ssoDeviceAuthMsg:
+		if msg.Err != nil {
+			m.lastErr = msg.Err
+			m.credentials.SetError(msg.Err.Error())
+		} else {
+			m.lastErr = nil
+			m.credentials.SetDeviceAuth(msg.UserCode, msg.VerificationURI, msg.ClientID, msg.ClientSecret, msg.DeviceCode)
+		}
+	case ssoTokenMsg:
+		if msg.Err != nil {
+			m.lastErr = msg.Err
+			m.credentials.SetError(msg.Err.Error())
+		} else {
+			m.lastErr = nil
+			m.accessToken = msg.AccessToken
+			cmds = append(cmds, m.loadSSOAccounts())
+		}
+	case ssoAccountsLoadedMsg:
+		if msg.Err != nil {
+			m.lastErr = msg.Err
+			m.credentials.SetError(msg.Err.Error())
+		} else {
+			m.lastErr = nil
+			m.credentials.SetAccounts(msg.Accounts)
+		}
+	case ssoRolesLoadedMsg:
+		if msg.Err != nil {
+			m.lastErr = msg.Err
+			m.credentials.SetError(msg.Err.Error())
+		} else {
+			m.lastErr = nil
+			m.credentials.SetRoles(msg.Roles)
+		}
+	case ssoCredentialsMsg:
+		if msg.Err != nil {
+			m.lastErr = msg.Err
+			m.credentials.SetError(msg.Err.Error())
+		} else {
+			m.lastErr = nil
+			m.credentials.SetCredentials(msg.Credentials)
+		}
 	}
 
 	var cmd tea.Cmd
@@ -199,6 +274,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, m.cloudwatch.Update(msg))
 	case serviceCloudFront:
 		cmds = append(cmds, m.cloudfront.Update(msg))
+	case serviceCredentials:
+		cmds = append(cmds, m.credentials.Update(msg))
 	}
 
 	return m, tea.Batch(cmds...)
@@ -228,14 +305,19 @@ func (m Model) activeView() string {
 		body = m.cloudwatch.View()
 	case serviceCloudFront:
 		body = m.cloudfront.View()
+	case serviceCredentials:
+		body = m.credentials.View()
 	}
 
-	footerParts := []string{"1-4 switch", "enter select", "r refresh", "q quit"}
+	footerParts := []string{"1-5 switch", "enter select", "r refresh", "q quit"}
 	if m.active == serviceCloudWatch {
 		footerParts = append(footerParts, "t tail selected group")
 	}
 	if m.active == serviceCloudFront {
 		footerParts = append(footerParts, "e edit path", "esc done editing", "i create invalidation")
+	}
+	if m.active == serviceCredentials {
+		footerParts = append(footerParts, "l login", "p poll")
 	}
 	if m.lastErr != nil {
 		footerParts = append(footerParts, styles.error.Render(m.lastErr.Error()))
@@ -380,6 +462,110 @@ func (m Model) createInvalidation() tea.Cmd {
 		}
 		return invalidationCreatedMsg(result)
 	}
+}
+
+func (m Model) startSSODeviceAuth() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		deviceCode, userCode, verificationURI, verificationURIComplete,
+			clientSecret, clientID, _, err := infraaws.DeviceAuthInfo(ctx, m.ssoCfg)
+		if err != nil {
+			return ssoDeviceAuthMsg{Err: err}
+		}
+
+		_ = infraaws.OpenBrowser(awsToString(verificationURIComplete))
+
+		return ssoDeviceAuthMsg{
+			UserCode:        awsToString(userCode),
+			VerificationURI: awsToString(verificationURI),
+			ClientID:        awsToString(clientID),
+			ClientSecret:    awsToString(clientSecret),
+			DeviceCode:      awsToString(deviceCode),
+		}
+	}
+}
+
+func (m Model) pollSSOToken() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+
+		token, err := infraaws.PollToken(ctx, m.ssoCfg,
+			awsString(m.credentials.GetClientID()),
+			awsString(m.credentials.GetClientSecret()),
+			awsString(m.credentials.GetDeviceCode()),
+		)
+		if err != nil {
+			return ssoTokenMsg{Err: err}
+		}
+		return ssoTokenMsg{AccessToken: token}
+	}
+}
+
+func (m Model) loadSSOAccounts() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		accounts, err := infraaws.ListAccounts(ctx, m.ssoCfg.Region, m.accessToken)
+		if err != nil {
+			return ssoAccountsLoadedMsg{Err: err}
+		}
+		return ssoAccountsLoadedMsg{Accounts: accounts}
+	}
+}
+
+func (m Model) loadSSORoles() tea.Cmd {
+	account := m.credentials.SelectedAccount()
+	return func() tea.Msg {
+		if account == nil {
+			return ssoRolesLoadedMsg{Err: fmt.Errorf("no account selected")}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		roles, err := infraaws.ListAccountRoles(ctx, m.ssoCfg.Region, m.accessToken, account.AccountID)
+		if err != nil {
+			return ssoRolesLoadedMsg{Err: err}
+		}
+		return ssoRolesLoadedMsg{Roles: roles}
+	}
+}
+
+func (m Model) fetchSSOCredentials() tea.Cmd {
+	account := m.credentials.SelectedAccount()
+	role := m.credentials.SelectedRole()
+	return func() tea.Msg {
+		if account == nil || role == nil {
+			return ssoCredentialsMsg{Err: fmt.Errorf("no account or role selected")}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		creds, err := infraaws.GetRoleCredentials(ctx, m.ssoCfg.Region, m.accessToken, account.AccountID, role.RoleName)
+		if err != nil {
+			return ssoCredentialsMsg{Err: err}
+		}
+
+		if err := infraaws.WriteCredentials("default", creds); err != nil {
+			return ssoCredentialsMsg{Err: fmt.Errorf("write credentials: %w", err)}
+		}
+
+		return ssoCredentialsMsg{Credentials: creds}
+	}
+}
+
+func awsToString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+func awsString(s string) *string {
+	return &s
 }
 
 var styles = struct {
