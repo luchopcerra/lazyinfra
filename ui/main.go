@@ -19,11 +19,11 @@ import (
 type service int
 
 const (
-	serviceAPIGateway service = iota
+	serviceCredentials service = iota
+	serviceAPIGateway
 	serviceLambda
 	serviceCloudWatch
 	serviceCloudFront
-	serviceCredentials
 )
 
 var services = []struct {
@@ -31,11 +31,11 @@ var services = []struct {
 	title string
 	desc  string
 }{
+	{serviceCredentials, "SSO Credentials", "login and update default profile"},
 	{serviceAPIGateway, "API Gateway", "routes and integrations"},
 	{serviceLambda, "AWS Lambda", "functions and invoke"},
 	{serviceCloudWatch, "CloudWatch", "logs and tailing"},
 	{serviceCloudFront, "CloudFront", "distributions and invalidations"},
-	{serviceCredentials, "SSO Credentials", "login and update default profile"},
 }
 
 type Model struct {
@@ -85,7 +85,7 @@ func NewModel(client *infraaws.AWSClient) Model {
 	return Model{
 		client:      client,
 		sidebar:     sidebar,
-		active:      serviceAPIGateway,
+		active:      serviceCredentials,
 		api:         views.NewAPIModel(),
 		lambda:      views.NewLambdaModel(),
 		cloudwatch:  views.NewCloudWatchModel(),
@@ -123,22 +123,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.tailCancel()
 			}
 			return m, tea.Quit
-		case "1":
-			m.sidebar.Select(0)
-			m.active = serviceAPIGateway
-		case "2":
-			m.sidebar.Select(1)
-			m.active = serviceLambda
-			cmds = append(cmds, m.loadLambdaFunctions())
-		case "3":
-			m.sidebar.Select(2)
-			m.active = serviceCloudWatch
-		case "4":
-			m.sidebar.Select(3)
-			m.active = serviceCloudFront
-		case "5":
-			m.sidebar.Select(4)
-			m.active = serviceCredentials
+		case "1", "2", "3", "4", "5":
+			if m.active == serviceCredentials && m.credentials.IsConfiguring() {
+				break
+			}
+			switch msg.String() {
+			case "1":
+				m.sidebar.Select(0)
+				m.active = serviceCredentials
+			case "2":
+				m.sidebar.Select(1)
+				m.active = serviceAPIGateway
+			case "3":
+				m.sidebar.Select(2)
+				m.active = serviceLambda
+				cmds = append(cmds, m.loadLambdaFunctions())
+			case "4":
+				m.sidebar.Select(3)
+				m.active = serviceCloudWatch
+			case "5":
+				m.sidebar.Select(4)
+				m.active = serviceCloudFront
+			}
 		case "enter":
 			if item, ok := m.sidebar.SelectedItem().(menuItem); ok {
 				m.active = item.id
