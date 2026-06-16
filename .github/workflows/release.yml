@@ -23,6 +23,12 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Validate installers
+        shell: bash
+        run: |
+          bash -n install.sh
+          pwsh -NoProfile -Command '$null = [scriptblock]::Create((Get-Content -Raw ./install.ps1))'
+
       - name: Run tests
         run: go test ./...
 
