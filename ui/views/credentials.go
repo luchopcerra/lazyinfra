@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -16,6 +17,7 @@ type SSOState int
 
 const (
 	SSOIdle SSOState = iota
+	SSOConfiguring
 	SSODeviceAuth
 	SSOPolling
 	SSOSelectAccount
@@ -42,25 +44,51 @@ type CredentialsModel struct {
 	lastUpdated     string
 	width           int
 	height          int
+
+	startURLInput textinput.Model
+	regionInput   textinput.Model
+	editingField  int
 }
 
+const (
+	fieldStartURL = iota
+	fieldRegion
+)
+
 func NewCredentialsModel() CredentialsModel {
+	startURLInput := textinput.New()
+	startURLInput.Placeholder = "https://my-company.awsapps.com/start"
+	startURLInput.CharLimit = 256
+	startURLInput.Width = 60
+	startURLInput.Prompt = ""
+
+	regionInput := textinput.New()
+	regionInput.Placeholder = "us-east-1"
+	regionInput.CharLimit = 32
+	regionInput.Width = 20
+	regionInput.Prompt = ""
+
 	return CredentialsModel{
-		startURL: os.Getenv("SSO_START_URL"),
-		region:   envOrDefault("SSO_REGION", "us-east-1"),
+		startURL:      os.Getenv("SSO_START_URL"),
+		region:        envOrDefault("SSO_REGION", ""),
+		startURLInput: startURLInput,
+		regionInput:   regionInput,
 	}
 }
 
-func (m CredentialsModel) GetStartURL() string      { return m.startURL }
-func (m CredentialsModel) GetRegion() string         { return m.region }
-func (m CredentialsModel) State() SSOState            { return m.state }
-func (m CredentialsModel) GetClientID() string        { return m.clientID }
-func (m CredentialsModel) GetClientSecret() string     { return m.clientSecret }
-func (m CredentialsModel) GetDeviceCode() string       { return m.deviceCode }
+func (m CredentialsModel) GetStartURL() string       { return m.startURL }
+func (m CredentialsModel) GetRegion() string          { return m.region }
+func (m CredentialsModel) State() SSOState             { return m.state }
+func (m CredentialsModel) GetClientID() string         { return m.clientID }
+func (m CredentialsModel) GetClientSecret() string      { return m.clientSecret }
+func (m CredentialsModel) GetDeviceCode() string        { return m.deviceCode }
+func (m CredentialsModel) IsConfiguring() bool          { return m.state == SSOConfiguring }
 
 func (m *CredentialsModel) SetSize(width, height int) {
 	m.width = width
 	m.height = height
+	m.startURLInput.Width = max(30, min(60, width-20))
+	m.regionInput.Width = max(10, min(30, width-20))
 }
 
 func (m *CredentialsModel) SetAccounts(accounts []infraaws.SSOAccount) {
@@ -125,6 +153,22 @@ func (m *CredentialsModel) Reset() {
 	m.selected = 0
 	m.creds = nil
 	m.errMsg = ""
+	m.startURLInput.Blur()
+	m.regionInput.Blur()
+	m.editingField = 0
+}
+
+func (m *CredentialsModel) StartConfiguring() {
+	m.state = SSOConfiguring
+	m.startURLInput.SetValue(m.startURL)
+	m.regionInput.SetValue(m.region)
+	m.editingField = 0
+	m.startURLInput.Focus()
+	m.errMsg = ""
+}
+
+func (m *CredentialsModel) IsValid() bool {
+	return m.startURL != "" && m.region != ""
 }
 
 func (m *CredentialsModel) SelectedAccount() *infraaws.SSOAccount {
@@ -144,6 +188,58 @@ func (m *CredentialsModel) SelectedRole() *infraaws.SSORole {
 func (m *CredentialsModel) Update(msg tea.Msg) tea.Cmd {
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
+		if m.state == SSOConfiguring {
+			var cmd tea.Cmd
+			if m.editingField == fieldStartURL {
+				m.startURLInput, cmd = m.startURLInput.Update(msg)
+			} else {
+				m.regionInput, cmd = m.regionInput.Update(msg)
+			}
+			return cmd
+		}
+		return nil
+	}
+
+	if m.state == SSOConfiguring {
+		switch key.String() {
+		case "tab", "down":
+			if m.editingField == fieldStartURL {
+				m.editingField = fieldRegion
+				m.startURLInput.Blur()
+				m.regionInput.Focus()
+			} else {
+				m.editingField = fieldStartURL
+				m.regionInput.Blur()
+				m.startURLInput.Focus()
+			}
+		case "shift+tab", "up":
+			if m.editingField == fieldRegion {
+				m.editingField = fieldStartURL
+				m.regionInput.Blur()
+				m.startURLInput.Focus()
+			} else {
+				m.editingField = fieldRegion
+				m.startURLInput.Blur()
+				m.regionInput.Focus()
+			}
+		case "enter":
+			m.startURL = strings.TrimSpace(m.startURLInput.Value())
+			m.region = strings.TrimSpace(m.regionInput.Value())
+			if m.region == "" {
+				m.region = "us-east-1"
+			}
+			if m.startURL == "" {
+				m.errMsg = "Start URL is required"
+				return nil
+			}
+			m.state = SSOIdle
+			m.startURLInput.Blur()
+			m.regionInput.Blur()
+		case "esc":
+			m.state = SSOIdle
+			m.startURLInput.Blur()
+			m.regionInput.Blur()
+		}
 		return nil
 	}
 
@@ -174,6 +270,8 @@ func (m CredentialsModel) View() string {
 	switch m.state {
 	case SSOIdle:
 		m.renderIdle(&b)
+	case SSOConfiguring:
+		m.renderConfiguring(&b)
 	case SSODeviceAuth:
 		m.renderDeviceAuth(&b)
 	case SSOPolling:
@@ -213,23 +311,38 @@ func (m CredentialsModel) renderIdle(b *strings.Builder) {
 	))
 	b.WriteString("\n")
 
-	if m.startURL == "" {
-		b.WriteString(warn.Render("SSO_START_URL not set"))
-		b.WriteString("\n")
-		b.WriteString(fmt.Sprintf("  %s\n", muted.Render("Set SSO_START_URL env var (e.g. https://my-company.awsapps.com/start)")))
-		b.WriteString("\n")
-	} else {
+	if m.startURL != "" {
 		b.WriteString(fmt.Sprintf("  Start URL: %s\n", m.startURL))
-		b.WriteString(fmt.Sprintf("  Region:     %s\n", m.region))
-		b.WriteString("\n")
+	} else {
+		b.WriteString(fmt.Sprintf("  Start URL: %s\n", warn.Render("not set")))
 	}
+	if m.region != "" {
+		b.WriteString(fmt.Sprintf("  Region:     %s\n", m.region))
+	} else {
+		b.WriteString(fmt.Sprintf("  Region:     %s\n", warn.Render("not set")))
+	}
+	b.WriteString("\n")
 
 	if m.errMsg != "" {
-		b.WriteString(errorLine.Render(fmt.Sprintf("  Last error: %s", m.errMsg)))
+		b.WriteString(errorLine.Render(fmt.Sprintf("  %s", m.errMsg)))
 		b.WriteString("\n\n")
 	}
 
-	b.WriteString(muted.Render("Press l to start SSO login"))
+	if m.startURL != "" && m.region != "" {
+		b.WriteString(muted.Render("Press l to start SSO login"))
+	} else {
+		b.WriteString(muted.Render("Press c to configure start URL and region"))
+	}
+}
+
+func (m CredentialsModel) renderConfiguring(b *strings.Builder) {
+	b.WriteString(sectionTitle.Render("Configure SSO"))
+	b.WriteString("\n\n")
+
+	b.WriteString(fmt.Sprintf("Start URL:\n%s\n\n", m.startURLInput.View()))
+	b.WriteString(fmt.Sprintf("Region:\n%s\n\n", m.regionInput.View()))
+
+	b.WriteString(muted.Render("tab/up/down switch fields  |  enter confirm  |  esc cancel"))
 }
 
 func (m CredentialsModel) renderDeviceAuth(b *strings.Builder) {

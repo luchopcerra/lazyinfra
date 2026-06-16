@@ -26,7 +26,7 @@ func main() {
 		case "--version":
 			fmt.Printf("lazyinfra %s (%s, %s)\n", version, commit, date)
 			return
-		case "sso":
+		case "sso", "login":
 			runSSO()
 			return
 		}
