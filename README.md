@@ -36,6 +36,18 @@
 
 ## Getting Started
 
+### Install Script (macOS/Linux)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/luchopcerra/lazyinfra/main/install.sh | bash
+```
+
+### Install Script (Windows PowerShell)
+
+```powershell
+irm https://raw.githubusercontent.com/luchopcerra/lazyinfra/main/install.ps1 | iex
+```
+
 ### Homebrew (macOS/Linux)
 
 ```bash
@@ -101,8 +113,13 @@ LOCALSTACK_ENDPOINT=http://localhost:4566 AWS_REGION=us-east-1 go run main.go
 ```text
 lazyinfra/
 +-- aws/          # AWS SDK clients and service methods
++-- install.sh    # macOS/Linux installer for GitHub release assets
++-- install.ps1   # Windows PowerShell installer for GitHub release assets
 +-- ui/           # Bubble Tea root model, messages, updates, and layout
 |   +-- views/    # Service-specific views
++-- .github/
+|   +-- workflows/
+|       +-- release.yml  # GoReleaser-based release publishing
 +-- main.go       # Entry point
 +-- go.mod
 +-- README.md
