@@ -42,15 +42,15 @@ archives:
 checksum:
   name_template: checksums.txt
 
-brews:
+homebrew_casks:
   - repository:
       owner: luchopcerra
       name: homebrew-tap
-    directory: Formula
+    directory: Casks
     homepage: https://github.com/luchopcerra/lazyinfra
     description: "A fast, keyboard-driven AWS Serverless TUI"
-    install: |
-      bin.install "lazyinfra"
+    binaries:
+      - lazyinfra
 
 winget:
   - name: lazyinfra
