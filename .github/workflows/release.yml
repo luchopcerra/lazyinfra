@@ -23,6 +23,12 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Validate installers
+        shell: bash
+        run: |
+          bash -n install.sh
+          pwsh -NoProfile -Command '$null = [scriptblock]::Create((Get-Content -Raw ./install.ps1))'
+
       - name: Run tests
         run: go test ./...
 
@@ -30,7 +36,8 @@ jobs:
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
-          version: "~> v2"
+          version: "v2.15.2"
           args: release --clean
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Use a custom PAT to allow pushing to Homebrew and Winget repositories.
+          GITHUB_TOKEN: ${{ secrets.GORELEASER_TOKEN }}
