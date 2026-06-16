@@ -201,6 +201,13 @@ func (m *CredentialsModel) Update(msg tea.Msg) tea.Cmd {
 	}
 
 	if m.state == SSOConfiguring {
+		var cmd tea.Cmd
+		if m.editingField == fieldStartURL {
+			m.startURLInput, _ = m.startURLInput.Update(msg)
+		} else {
+			m.regionInput, _ = m.regionInput.Update(msg)
+		}
+
 		switch key.String() {
 		case "tab", "down":
 			if m.editingField == fieldStartURL {
@@ -230,7 +237,7 @@ func (m *CredentialsModel) Update(msg tea.Msg) tea.Cmd {
 			}
 			if m.startURL == "" {
 				m.errMsg = "Start URL is required"
-				return nil
+				return cmd
 			}
 			m.state = SSOIdle
 			m.startURLInput.Blur()
@@ -240,7 +247,7 @@ func (m *CredentialsModel) Update(msg tea.Msg) tea.Cmd {
 			m.startURLInput.Blur()
 			m.regionInput.Blur()
 		}
-		return nil
+		return cmd
 	}
 
 	switch key.String() {
