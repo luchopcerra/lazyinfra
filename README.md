@@ -112,18 +112,32 @@ LOCALSTACK_ENDPOINT=http://localhost:4566 AWS_REGION=us-east-1 go run main.go
 
 ```text
 lazyinfra/
++-- .agents/      # Project-specific AI agent skills (Go patterns & testing)
++-- .github/
+|   +-- workflows/
+|       +-- release.yml  # GoReleaser-based release publishing
+|       +-- ci.yml       # Automated build and test workflow
+|   +-- ISSUE_TEMPLATE/
+|       +-- agent_feature.md # Template for community AI agent feature requests
 +-- aws/          # AWS SDK clients and service methods
 +-- install.sh    # macOS/Linux installer for GitHub release assets
 +-- install.ps1   # Windows PowerShell installer for GitHub release assets
 +-- ui/           # Bubble Tea root model, messages, updates, and layout
 |   +-- views/    # Service-specific views
-+-- .github/
-|   +-- workflows/
-|       +-- release.yml  # GoReleaser-based release publishing
++-- Agents.md     # Built-in AI Agent specifications
 +-- main.go       # Entry point
 +-- go.mod
 +-- README.md
 ```
+
+## AI Agent & Workspace Skills
+
+To improve our development workflow and help open-source contributors build robust features, we have designed specifications for a built-in AI Copilot and installed workspace-scoped agent skills:
+
+- **AI Agent Specification**: Read [Agents.md](Agents.md) to learn about the architectural plans for context-aware AWS debugging, Lambda invocation helpers, and logs diagnostics.
+- **Developer Skills**: Coding assistants you pair with inside this repository will automatically discover and follow the development guidelines defined in:
+  - [.agents/skills/golang-patterns/SKILL.md](.agents/skills/golang-patterns/SKILL.md): Idiomatic Go design patterns (functional options, error flow, resource management).
+  - [.agents/skills/golang-testing/SKILL.md](.agents/skills/golang-testing/SKILL.md): Testing standards (table-driven tests, subtests, parallel execution).
 
 ## Contributing
 
@@ -136,4 +150,5 @@ That design should make new AWS features straightforward to add:
 3. Trigger the work through a `tea.Cmd`.
 4. Render the new state inside the relevant `ui/views/` model.
 
-Open issues, propose improvements, or send a pull request for the next piece of serverless infrastructure you want to make easier from the terminal.
+Open issues, propose improvements, or send a pull request for the next piece of serverless infrastructure you want to make easier from the terminal. Use our custom issue templates to propose new AI Agent features and tools.
+
