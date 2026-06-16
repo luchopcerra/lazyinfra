@@ -42,6 +42,15 @@
 brew install luchopcerra/tap/lazyinfra
 ```
 
+### WinGet (Windows)
+
+```powershell
+winget install --id luchopcerra.lazyinfra
+```
+
+WinGet availability starts after the generated manifest pull request is accepted
+into [`microsoft/winget-pkgs`](https://github.com/microsoft/winget-pkgs).
+
 ### Prerequisites
 
 - Go installed locally (if building from source).

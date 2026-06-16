@@ -30,8 +30,8 @@ jobs:
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
-          version: "~> v2"
+          version: "v2.15.2"
           args: release --clean
         env:
-          # Use a custom PAT to allow pushing to the Homebrew tap repository
+          # Use a custom PAT to allow pushing to Homebrew and Winget repositories.
           GITHUB_TOKEN: ${{ secrets.GORELEASER_TOKEN }}

@@ -52,6 +52,41 @@ brews:
     install: |
       bin.install "lazyinfra"
 
+winget:
+  - name: lazyinfra
+    publisher: luchopcerra
+    package_identifier: luchopcerra.lazyinfra
+    package_name: lazyinfra
+    homepage: https://github.com/luchopcerra/lazyinfra
+    publisher_url: https://github.com/luchopcerra
+    publisher_support_url: https://github.com/luchopcerra/lazyinfra/issues
+    license: MIT
+    license_url: https://github.com/luchopcerra/lazyinfra/blob/main/LICENSE
+    short_description: A fast, keyboard-driven AWS Serverless TUI
+    description: |
+      lazyinfra is a fast, keyboard-driven AWS Serverless TUI for backend developers
+      who want to inspect and interact with AWS Lambda, API Gateway, CloudWatch,
+      and CloudFront infrastructure without leaving the terminal.
+    release_notes: "{{ .Changelog }}"
+    release_notes_url: "https://github.com/luchopcerra/lazyinfra/releases/tag/{{ .Tag }}"
+    tags:
+      - aws
+      - cli
+      - tui
+      - serverless
+      - lambda
+    repository:
+      owner: luchopcerra
+      name: winget-pkgs
+      branch: "lazyinfra-{{ .Version }}"
+      pull_request:
+        enabled: true
+        draft: true
+        base:
+          owner: microsoft
+          name: winget-pkgs
+          branch: master
+
 snapshot:
   version_template: "{{ incpatch .Version }}-next"
 
