@@ -92,6 +92,7 @@ func runSSO() {
 	fmt.Print("Press Enter after completing the browser login...")
 	_, _ = reader.ReadString('\n')
 
+	fmt.Println("Polling for authentication...")
 	token, err := infraaws.PollToken(ctx, cfg, clientID, clientSecret, deviceCode)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "token poll failed: %v\n", err)
@@ -100,6 +101,7 @@ func runSSO() {
 	fmt.Println("Authentication successful!")
 	fmt.Println()
 
+	fmt.Println("Fetching AWS accounts...")
 	accounts, err := infraaws.ListAccounts(ctx, cfg.Region, token)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "list accounts failed: %v\n", err)
@@ -120,6 +122,7 @@ func runSSO() {
 	fmt.Printf("Selected: %s (%s)\n", selectedAccount.AccountID, selectedAccount.AccountName)
 	fmt.Println()
 
+	fmt.Println("Fetching available roles...")
 	roles, err := infraaws.ListAccountRoles(ctx, cfg.Region, token, selectedAccount.AccountID)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "list roles failed: %v\n", err)

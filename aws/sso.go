@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os/exec"
 	"runtime"
 	"time"
@@ -16,11 +17,12 @@ import (
 )
 
 const (
-	ssoClientName = "lazyinfra"
-	ssoClientType = "public"
-	ssoGrantType  = "urn:ietf:params:oauth:grant-type:device_code"
+	ssoClientName   = "lazyinfra"
+	ssoClientType   = "public"
+	ssoGrantType    = "urn:ietf:params:oauth:grant-type:device_code"
 	ssoPollInterval = 2 * time.Second
 	ssoPollTimeout  = 5 * time.Minute
+	httpTimeout     = 30 * time.Second
 )
 
 type SSOConfig struct {
@@ -44,11 +46,19 @@ type SSORole struct {
 	RoleName string
 }
 
+func newSSOConfig(ctx context.Context, region string) (aws.Config, error) {
+	return config.LoadDefaultConfig(ctx,
+		config.WithRegion(region),
+		config.WithCredentialsProvider(aws.AnonymousCredentials{}),
+		config.WithHTTPClient(&http.Client{Timeout: httpTimeout}),
+	)
+}
+
 func DeviceAuthInfo(ctx context.Context, cfg SSOConfig) (
 	deviceCode, userCode, verificationURI, verificationURIComplete *string,
 	clientSecret, clientID *string, interval int64, err error,
 ) {
-	ssoCfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(cfg.Region))
+	ssoCfg, err := newSSOConfig(ctx, cfg.Region)
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, 0, fmt.Errorf("load sso config: %w", err)
 	}
@@ -83,7 +93,7 @@ func DeviceAuthInfo(ctx context.Context, cfg SSOConfig) (
 }
 
 func PollToken(ctx context.Context, cfg SSOConfig, clientID, clientSecret, deviceCode *string) (*string, error) {
-	ssoCfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(cfg.Region))
+	ssoCfg, err := newSSOConfig(ctx, cfg.Region)
 	if err != nil {
 		return nil, fmt.Errorf("load sso config: %w", err)
 	}
@@ -103,13 +113,17 @@ func PollToken(ctx context.Context, cfg SSOConfig, clientID, clientSecret, devic
 		if err != nil {
 			var pending *types.AuthorizationPendingException
 			var slowDown *types.SlowDownException
+			var expired *types.ExpiredTokenException
 			if errors.As(err, &pending) || errors.As(err, &slowDown) {
 				select {
 				case <-tokenCtx.Done():
-					return nil, tokenCtx.Err()
+					return nil, fmt.Errorf("timed out waiting for browser authentication")
 				case <-time.After(ssoPollInterval):
 					continue
 				}
+			}
+			if errors.As(err, &expired) {
+				return nil, fmt.Errorf("device authorization expired — please start over")
 			}
 			return nil, fmt.Errorf("create token: %w", err)
 		}
@@ -118,7 +132,7 @@ func PollToken(ctx context.Context, cfg SSOConfig, clientID, clientSecret, devic
 }
 
 func ListAccounts(ctx context.Context, region string, accessToken *string) ([]SSOAccount, error) {
-	ssoCfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
+	ssoCfg, err := newSSOConfig(ctx, region)
 	if err != nil {
 		return nil, fmt.Errorf("load sso config: %w", err)
 	}
@@ -149,7 +163,7 @@ func ListAccounts(ctx context.Context, region string, accessToken *string) ([]SS
 }
 
 func ListAccountRoles(ctx context.Context, region string, accessToken *string, accountID string) ([]SSORole, error) {
-	ssoCfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
+	ssoCfg, err := newSSOConfig(ctx, region)
 	if err != nil {
 		return nil, fmt.Errorf("load sso config: %w", err)
 	}
@@ -180,7 +194,7 @@ func ListAccountRoles(ctx context.Context, region string, accessToken *string, a
 }
 
 func GetRoleCredentials(ctx context.Context, region string, accessToken *string, accountID, roleName string) (*AWSCredentials, error) {
-	ssoCfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
+	ssoCfg, err := newSSOConfig(ctx, region)
 	if err != nil {
 		return nil, fmt.Errorf("load sso config: %w", err)
 	}
